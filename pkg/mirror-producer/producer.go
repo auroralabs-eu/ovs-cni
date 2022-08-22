@@ -142,7 +142,7 @@ func CmdDel(args *skel.CmdArgs) error {
 	logger.Info(fmt.Sprintf("cmdDel - the config data: %s\n", args.StdinData))
 
 	cRef := config.GetCRef(args.ContainerID, args.IfName)
-	cache, err := config.LoadMirrorConfFromCache(cRef)
+	cache, err := config.LoadMirrorConfFromCache(cRef + "_prod")
 	if err != nil {
 		// If cmdDel() fails, cached netconf is cleaned up by
 		// the followed defer call. However, subsequence calls
