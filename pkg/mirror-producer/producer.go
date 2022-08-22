@@ -27,6 +27,7 @@ import (
 	"runtime"
 
 	"github.com/k8snetworkplumbingwg/ovs-cni/pkg/config"
+	"go.uber.org/zap"
 
 	"github.com/containernetworking/cni/pkg/skel"
 	cnitypes "github.com/containernetworking/cni/pkg/types"
@@ -36,11 +37,17 @@ import (
 	"github.com/k8snetworkplumbingwg/ovs-cni/pkg/types"
 )
 
+var logger *zap.SugaredLogger
+
 func init() {
 	// this ensures that main runs only on main thread (thread group leader).
 	// since namespace ops (unshare, setns) are done for a single thread, we
 	// must ensure that the goroutine does not jump from OS thread to thread
 	runtime.LockOSThread()
+
+	logger = InitLogger("/home/master/ovs-logs/consumer.log")
+	defer logger.Sync()
+	logger.Info("Starting PLUGIN....")
 }
 
 func logCall(command string, args *skel.CmdArgs) {
@@ -119,10 +126,20 @@ func CmdAdd(args *skel.CmdArgs) error {
 func CmdDel(args *skel.CmdArgs) error {
 	logCall("DEL", args)
 
+	logger.Info("--------------cmdDel--------------")
+	logger.Info(args.IfName)
+	logger.Info(args.ContainerID)
+	logger.Info(args.Netns)
+	logger.Info(args.Args)
+	logger.Info(args.Path)
+	logger.Info(fmt.Sprintf("cmdDel - the config data: %s\n", args.StdinData))
+
 	netconf, err := config.LoadMirrorConf(args.StdinData)
 	if err != nil {
 		return err
 	}
+
+	logger.Infof("cmdDel - netconf parsed from StdinData is: %#v", netconf)
 
 	ovsDriver, err := ovsdb.NewOvsBridgeDriver(netconf.BrName, netconf.SocketFile)
 	if err != nil {
