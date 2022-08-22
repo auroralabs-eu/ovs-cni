@@ -140,6 +140,8 @@ func CmdDel(args *skel.CmdArgs) error {
 	}
 
 	logger.Infof("cmdDel - netconf parsed from StdinData is: %#v", netconf)
+	logger.Infof("cmdDel - netconf prevresult: %#v", netconf.PrevResult)
+	logger.Infof("cmdDel - netconf interfaces: %#v", netconf.PrevResult.Interfaces)
 
 	ovsDriver, err := ovsdb.NewOvsBridgeDriver(netconf.BrName, netconf.SocketFile)
 	if err != nil {
