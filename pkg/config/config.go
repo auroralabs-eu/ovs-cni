@@ -77,9 +77,9 @@ func LoadMirrorConf(data []byte) (*types.MirrorNetConf, error) {
 	return netconf, nil
 }
 
-// LoadMirrorConfFromCache retrieve net config for mirrors from cache
-func LoadMirrorConfFromCache(cRef string) (*types.CachedMirrorNetConf, error) {
-	netCache := &types.CachedMirrorNetConf{}
+// LoadPrevResultConfFromCache retrieve preResult config from cache
+func LoadPrevResultConfFromCache(cRef string) (*types.CachedPrevResultNetConf, error) {
+	netCache := &types.CachedPrevResultNetConf{}
 	netConfBytes, err := utils.ReadCache(cRef)
 	if err != nil {
 		return nil, fmt.Errorf("error reading cached NetConf with name %s: %v", cRef, err)

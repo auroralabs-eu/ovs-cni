@@ -99,9 +99,9 @@ func CmdAdd(args *skel.CmdArgs) error {
 		return err
 	}
 
-	// Cache NetConf for CmdDel
+	// Cache PrevResult for CmdDel
 	if err = utils.SaveCache(config.GetCRef(args.ContainerID, args.IfName)+"_prod",
-		&types.CachedMirrorNetConf{Netconf: netconf}); err != nil {
+		&types.CachedPrevResultNetConf{PrevResult: netconf.PrevResult}); err != nil {
 		return fmt.Errorf("error saving NetConf %q", err)
 	}
 
@@ -142,14 +142,14 @@ func CmdDel(args *skel.CmdArgs) error {
 	logger.Info(fmt.Sprintf("cmdDel - the config data: %s\n", args.StdinData))
 
 	cRef := config.GetCRef(args.ContainerID, args.IfName)
-	cache, err := config.LoadMirrorConfFromCache(cRef + "_prod")
+	cache, err := config.LoadPrevResultConfFromCache(cRef + "_prod")
 	if err != nil {
-		// If cmdDel() fails, cached netconf is cleaned up by
+		// If cmdDel() fails, cached prevResult is cleaned up by
 		// the followed defer call. However, subsequence calls
 		// of cmdDel() from kubelet fail in a dead loop due to
-		// cached netconf doesn't exist.
-		// Return nil when LoadMirrorConfFromCache fails since the rest
-		// of cmdDel() code relies on netconf as input argument
+		// cached prevResult doesn't exist.
+		// Return nil when LoadPrevResultConfFromCache fails since the rest
+		// of cmdDel() code relies on prevResult as input argument
 		// and there is no meaning to continue.
 		return nil
 	}
@@ -160,7 +160,12 @@ func CmdDel(args *skel.CmdArgs) error {
 		}
 	}()
 
-	netconf := cache.Netconf
+	netconf, err := config.LoadMirrorConf(args.StdinData)
+	if err != nil {
+		return err
+	}
+	// add prevResult, because missing in CNI spec < 0.4.0
+	netconf.PrevResult = cache.PrevResult
 
 	logger.Infof("cmdDel - netconf parsed from StdinData is: %#v", netconf)
 	logger.Infof("cmdDel - netconf prevresult: %#v", netconf.PrevResult)
