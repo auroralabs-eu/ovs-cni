@@ -45,7 +45,7 @@ func init() {
 	// must ensure that the goroutine does not jump from OS thread to thread
 	runtime.LockOSThread()
 
-	logger = InitLogger("/home/master/ovs-logs/consumer.log")
+	logger = InitLogger("./producer.log")
 	defer logger.Sync()
 	logger.Info("Starting PLUGIN....")
 }
