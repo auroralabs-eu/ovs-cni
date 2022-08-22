@@ -77,3 +77,10 @@ type CachedNetConf struct {
 	Netconf    *NetConf
 	OrigIfName string
 }
+
+// CachedMirrorNetConf containing MirrorNetConf.
+// this is intended to be used only for storing and retrieving config
+// to/from a data store (example file cache).
+type CachedMirrorNetConf struct {
+	Netconf *MirrorNetConf
+}

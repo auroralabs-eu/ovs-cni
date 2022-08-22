@@ -27,6 +27,7 @@ import (
 	"runtime"
 
 	"github.com/k8snetworkplumbingwg/ovs-cni/pkg/config"
+	"github.com/k8snetworkplumbingwg/ovs-cni/pkg/utils"
 	"go.uber.org/zap"
 
 	"github.com/containernetworking/cni/pkg/skel"
@@ -98,6 +99,12 @@ func CmdAdd(args *skel.CmdArgs) error {
 		return err
 	}
 
+	// Cache NetConf for CmdDel
+	if err = utils.SaveCache(config.GetCRef(args.ContainerID, args.IfName)+"_cons",
+		&types.CachedMirrorNetConf{Netconf: netconf}); err != nil {
+		return fmt.Errorf("error saving NetConf %q", err)
+	}
+
 	portUUID, err := getPortUUID(ovsDriver, netconf.PrevResult.Interfaces)
 	if err != nil {
 		return fmt.Errorf("cannot get existing portUuid from db %v", err)
@@ -142,10 +149,26 @@ func CmdDel(args *skel.CmdArgs) error {
 	logger.Info(args.Path)
 	logger.Info(fmt.Sprintf("cmdDel - the config data: %s\n", args.StdinData))
 
-	netconf, err := config.LoadMirrorConf(args.StdinData)
+	cRef := config.GetCRef(args.ContainerID, args.IfName)
+	cache, err := config.LoadMirrorConfFromCache(cRef)
 	if err != nil {
-		return err
+		// If cmdDel() fails, cached netconf is cleaned up by
+		// the followed defer call. However, subsequence calls
+		// of cmdDel() from kubelet fail in a dead loop due to
+		// cached netconf doesn't exist.
+		// Return nil when LoadMirrorConfFromCache fails since the rest
+		// of cmdDel() code relies on netconf as input argument
+		// and there is no meaning to continue.
+		return nil
 	}
+
+	defer func() {
+		if err == nil {
+			utils.CleanCache(cRef)
+		}
+	}()
+
+	netconf := cache.Netconf
 
 	logger.Infof("cmdDel - netconf parsed from StdinData is: %#v", netconf)
 	logger.Infof("cmdDel - netconf prevresult: %#v", netconf.PrevResult)
