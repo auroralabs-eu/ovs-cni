@@ -127,6 +127,16 @@ func GetPortUUIDByName(name string) (string, error) {
 	return strings.TrimSpace(string(output[:])), nil
 }
 
+// GetPortNameByUUID gets a port name by its UUID
+func GetPortNameByUUID(portUUID string) (string, error) {
+	output, err := exec.Command("ovs-vsctl", "get", "Port", portUUID, "name").CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to get port name by UUID: %v", string(output[:]))
+	}
+
+	return strings.TrimSpace(string(output[:])), nil
+}
+
 // GetMirrorAttribute gets a mirror attribute
 func GetMirrorAttribute(mirrorName, attributeName string) (string, error) {
 	output, err := exec.Command("ovs-vsctl", "get", "Mirror", mirrorName, attributeName).CombinedOutput()
@@ -215,6 +225,20 @@ func AddOutputPortToMirror(portUUID, mirrorName string) (string, error) {
 	output, err := exec.Command("ovs-vsctl", "set", "Mirror", mirrorName, "output_port="+portUUID).CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("failed to set output_port for mirror %s with UUID %s: %v", mirrorName, portUUID, string(output[:]))
+	}
+
+	return strings.TrimSpace(string(output[:])), nil
+}
+
+// DeletePort removes a port via 'ovs-vsctl'
+func DeletePort(portUUID, bridgeName string) (string, error) {
+	portName, err := GetPortNameByUUID(portUUID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get port name by its UUID %s: %v", portUUID, err)
+	}
+	output, err := exec.Command("ovs-vsctl", "del-port", bridgeName, portName).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to remove port %s from bridge %s: %v", portName, bridgeName, string(output[:]))
 	}
 
 	return strings.TrimSpace(string(output[:])), nil

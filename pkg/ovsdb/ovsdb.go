@@ -455,6 +455,75 @@ func (ovsd *OvsBridgeDriver) DetachPortFromMirrorProducer(portUUIDStr, mirrorNam
 	return err
 }
 
+func (ovsd *OvsBridgeDriver) getPortsToRemove(rowValue interface{}) ([]interface{}, error) {
+	portsToRemove := []interface{}{}
+
+	// Workaround to check output_port, select_dst_port and select_src_port consistenly, processing all
+	// of them as array of UUIDs.
+	// This is useful because ovn-org/libovsdb:
+	// - when row["column"] is empty in ovsdb, it returns an empty ovsdb.OvsSet
+	// - when row["column"] contains an UUID reference, it returns a ovsdb.UUID (not ovsdb.OvsSet)
+	// - when row["column"] contains multiple UUID references, it returns an ovsdb.OvsSet with the elements
+	ports, err := convertToArray(rowValue)
+	if err != nil {
+		return portsToRemove, fmt.Errorf("cannot convert select_src_port to an array error: %v", err)
+	}
+	for _, port := range ports {
+		miss, err := ovsd.isPortUUIDMissing(port.(string))
+		if err != nil {
+			return portsToRemove, fmt.Errorf("cannot check if port = %#v is contained in Port table: %v", port, err)
+		}
+		if miss {
+			portsToRemove = append(portsToRemove, port)
+		}
+	}
+	return portsToRemove, nil
+}
+
+// CleanMirrorPorts remove portUUIDs from both `select_src_port`, `select_dst_port` and `output_port`, if not present in Port table.
+func (ovsd *OvsBridgeDriver) CleanMirrorPorts(mirrorName string) error {
+	condition := ovsdb.NewCondition("name", ovsdb.ConditionEqual, mirrorName)
+	row, err := ovsd.findByCondition("Mirror", condition, nil)
+	if err != nil {
+		return err
+	}
+
+	portsToRemove, err := ovsd.getPortsToRemove(row["select_src_port"])
+	if err != nil {
+		return fmt.Errorf("cannot get ports to remove for row = 'select_src_port'. Error: %v", err)
+	}
+	srcPortsMutateSet, _ := ovsdb.NewOvsSet(portsToRemove)
+
+	portsToRemove, err = ovsd.getPortsToRemove(row["select_dst_port"])
+	if err != nil {
+		return fmt.Errorf("cannot get ports to remove for row = 'select_dst_port'. Error: %v", err)
+	}
+	dstPortsMutateSet, _ := ovsdb.NewOvsSet(portsToRemove)
+
+	portsToRemove, err = ovsd.getPortsToRemove(row["output_port"])
+	if err != nil {
+		return fmt.Errorf("cannot get ports to remove for row = 'output_port'. Error: %v", err)
+	}
+	outputPortsMutateSet, _ := ovsdb.NewOvsSet(portsToRemove)
+
+	// remove all portUUIDS in select and output ports that are not in Port table
+	mutationSrcPort := ovsdb.NewMutation("select_src_port", ovsdb.MutateOperationDelete, srcPortsMutateSet)
+	mutationDstPort := ovsdb.NewMutation("select_dst_port", ovsdb.MutateOperationDelete, dstPortsMutateSet)
+	mutationOutputPort := ovsdb.NewMutation("output_port", ovsdb.MutateOperationDelete, outputPortsMutateSet)
+	mutateOp := ovsdb.Operation{
+		Op:        "mutate",
+		Table:     "Mirror",
+		Mutations: []ovsdb.Mutation{*mutationSrcPort, *mutationDstPort, *mutationOutputPort},
+		Where:     []ovsdb.Condition{condition},
+	}
+
+	// Perform OVS transaction
+	operations := []ovsdb.Operation{mutateOp}
+
+	_, err = ovsd.ovsdbTransact(operations)
+	return err
+}
+
 // DetachPortFromMirrorConsumer Removes portUUID as 'output_port' from an existing mirror
 func (ovsd *OvsBridgeDriver) DetachPortFromMirrorConsumer(portUUIDStr, mirrorName string) error {
 	portUUID := ovsdb.UUID{GoUUID: portUUIDStr}
@@ -767,6 +836,36 @@ func (ovsd *OvsDriver) isMirrorExistsByConditions(conditions []ovsdb.Condition) 
 	}
 
 	return true, nil
+}
+
+func (ovsd *OvsDriver) isPortUUIDMissing(portUUID string) (bool, error) {
+	condition := ovsdb.NewCondition("_uuid", ovsdb.ConditionEqual, portUUID)
+	selectOp := []ovsdb.Operation{{
+		Op:    "select",
+		Table: "Port",
+		Where: []ovsdb.Condition{condition},
+	}}
+
+	transactionResult, err := ovsd.ovsdbTransact(selectOp)
+	if err != nil {
+		return false, err
+	}
+
+	if len(transactionResult) != 1 {
+		return false, nil
+	}
+
+	operationResult := transactionResult[0]
+	if operationResult.Error != "" {
+		return false, fmt.Errorf("%s - %s", operationResult.Error, operationResult.Details)
+	}
+
+	if len(operationResult.Rows) != 1 {
+		// if no ports exist with that _uuid
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func createInterfaceOperation(intfName, ovnPortName string) (ovsdb.UUID, *ovsdb.Operation, error) {

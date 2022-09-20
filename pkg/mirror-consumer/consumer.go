@@ -69,6 +69,15 @@ func attachPortToMirror(ovsDriver *ovsdb.OvsBridgeDriver, portUUIDStr string, mi
 	return nil
 }
 
+func cleanMirrorPorts(ovsDriver *ovsdb.OvsBridgeDriver, mirror *types.Mirror) error {
+	err := ovsDriver.CleanMirrorPorts(mirror.Name)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func detachPortFromMirror(ovsDriver *ovsdb.OvsBridgeDriver, portUUIDStr string, mirror *types.Mirror) error {
 	err := ovsDriver.DetachPortFromMirrorConsumer(portUUIDStr, mirror.Name)
 	if err != nil {
@@ -108,6 +117,11 @@ func CmdAdd(args *skel.CmdArgs) error {
 		err = ovsDriver.CreateMirror(netconf.BrName, mirror.Name)
 		if err != nil {
 			return fmt.Errorf("cannot create mirror %s: %v ", mirror.Name, err)
+		}
+
+		// cleanup portUUIDs not present in Port table
+		if err = cleanMirrorPorts(ovsDriver, mirror); err != nil {
+			return fmt.Errorf("cannot cleanup ports in mirror %s: %v", mirror.Name, err)
 		}
 
 		alreadyAttached, err := ovsDriver.IsMirrorConsumerAlreadyAttached(mirror.Name)

@@ -399,6 +399,113 @@ var testFunc = func(version string) {
 				Expect(err.Error()).To(Equal(errorMessage))
 			})
 		})
+
+		Context("with invalid portUUIDs, because not defined in 'Port' table", func() {
+			mirrors := []types.Mirror{
+				{
+					Name:    "mirror-prod",
+					Ingress: true,
+					Egress:  false,
+				},
+			}
+			mirrorsJSONStr, err := ToJSONString(mirrors)
+			Expect(err).NotTo(HaveOccurred())
+
+			conf := fmt.Sprintf(`{
+				"cniVersion": "%s",
+				"name": "mynet",
+				"type": "ovs-mirror-producer",
+				"bridge": "%s",
+				"mirrors": %s
+			}`, version, bridgeName, mirrorsJSONStr)
+
+			It("should successfully complete ADD (also removing invalid portUUIDS), CHECK and DEL commands", func() {
+				targetNs := newNS()
+				defer func() {
+					closeNS(targetNs)
+				}()
+
+				By("create interfaces using ovs-cni plugin")
+				prevResult := createInterfaces(IFNAME1, targetNs)
+				portUUID := GetPortUUIDFromResult(prevResult)
+
+				By("run ovs-mirror-producer to add a mirror")
+				confMirror, result := testAdd(conf, mirrors, prevResult, IFNAME1, targetNs)
+				testCheck(confMirror, result, IFNAME1, targetNs)
+
+				By("check intermediate results: mirror exists")
+				exists, err := IsMirrorExists(mirrors[0].Name)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(exists).To(Equal(true))
+				By("check intermediate results: 'select_src_port*' and 'select_dst_port' must contain only portUUID")
+				srcPorts, err := GetMirrorSrcPorts(mirrors[0].Name)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(len(srcPorts)).To(Equal(1))
+				Expect(srcPorts).To(ContainElement(portUUID))
+				dstPorts, err := GetMirrorDstPorts(mirrors[0].Name)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(len(dstPorts)).To(Equal(1))
+				Expect(dstPorts).To(ContainElement(portUUID))
+				By("check intermediate results: 'output_port' must be empty")
+				outputs, err := GetMirrorOutputPorts(mirrors[0].Name)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(outputs).To(BeEmpty())
+
+				By("remove port used as 'select_*_port' in Mirror")
+				// delete port
+				DeletePort(portUUID, bridgeName)
+
+				// Mirror must be unchanged, because port has been removed, but Mirror still contains references
+				By("check intermediate results: mirror exists")
+				exists, err = IsMirrorExists(mirrors[0].Name)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(exists).To(Equal(true))
+				By("check intermediate results: 'select_src_port*' and 'select_dst_port' must contain only portUUID")
+				srcPorts, err = GetMirrorSrcPorts(mirrors[0].Name)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(len(srcPorts)).To(Equal(1))
+				Expect(srcPorts).To(ContainElement(portUUID))
+				dstPorts, err = GetMirrorDstPorts(mirrors[0].Name)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(len(dstPorts)).To(Equal(1))
+				Expect(dstPorts).To(ContainElement(portUUID))
+				By("check intermediate results: 'output_port' must be empty")
+				outputs, err = GetMirrorOutputPorts(mirrors[0].Name)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(outputs).To(BeEmpty())
+
+				By("create a new interface using ovs-cni plugin")
+				prevResult2 := createInterfaces(IFNAME2, targetNs)
+				portUUID2 := GetPortUUIDFromResult(prevResult2)
+
+				By("run ovs-mirror-producer to add the new port")
+				confMirror2, result2 := testAdd(conf, mirrors, prevResult2, IFNAME2, targetNs)
+				testCheck(confMirror2, result2, IFNAME2, targetNs)
+
+				// Mirror ports should be cleaned removing PortUUID, because not available in Port table
+				By("check intermediate results: mirror exists")
+				exists, err = IsMirrorExists(mirrors[0].Name)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(exists).To(Equal(true))
+				By("check intermediate results: 'select_src_port*' and 'select_dst_port' must contain only portUUID2")
+				srcPorts, err = GetMirrorSrcPorts(mirrors[0].Name)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(len(srcPorts)).To(Equal(1))
+				Expect(srcPorts).To(ContainElement(portUUID2))
+				dstPorts, err = GetMirrorDstPorts(mirrors[0].Name)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(len(dstPorts)).To(Equal(1))
+				Expect(dstPorts).To(ContainElement(portUUID2))
+				By("check intermediate results: 'output_port' must be empty")
+				outputs, err = GetMirrorOutputPorts(mirrors[0].Name)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(outputs).To(BeEmpty())
+
+				// remove everything
+				testDel(confMirror, mirrors, result, IFNAME1, targetNs)
+				testDel(confMirror2, mirrors, result2, IFNAME2, targetNs)
+			})
+		})
 	})
 
 	Context("adding host port to multiple mirrors", func() {
